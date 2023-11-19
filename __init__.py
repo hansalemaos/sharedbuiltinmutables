@@ -5,22 +5,30 @@ from functools import wraps
 from multiprocessing.shared_memory import SharedMemory
 from multiprocessing import RLock
 import pickle
+import dill
 
 _lock = RLock()
-import dill
-cfg=sys.modules[__name__]
+cfg = sys.modules[__name__]
 cfg.protocol = pickle.HIGHEST_PROTOCOL
-
+cfg.with_lock = True
 
 
 def lock(func):
     @wraps(func)
     def wrapper(*args, **kwargs):
-        _lock.acquire()
+        if cfg.with_lock:
+            try:
+                _lock.acquire()
+            except Exception:
+                pass
         try:
             return func(*args, **kwargs)
         finally:
-            _lock.release()
+            if cfg.with_lock:
+                try:
+                    _lock.release()
+                except Exception:
+                    pass
 
     return wrapper
 
@@ -160,6 +168,9 @@ class MemSharedDict(dict):
 
         return wrapper
 
+    def to_dict(self):
+        return {k: v for k, v in self.items()}
+
     def _update_mem(func):
         def wrapper(self, *arg, **kw):
             res = func(self, *arg, **kw)
@@ -195,7 +206,7 @@ class MemSharedDict(dict):
         if not self._mem_exists:
             self._memshared.unlink()
             gc.collect()
-        #return super().__del__(*args, **kwargs)
+        # return super().__del__(*args, **kwargs)
 
     @_load_mem
     @_update_mem
@@ -401,6 +412,9 @@ class MemSharedList(list):
                 it=[x for x in super().__iter__()] if initialdata else [],
             )
 
+    def to_list(self):
+        return [k for k in self.__iter__()]
+
     def _load_mem(func):
         def wrapper(self, *arg, **kw):
             self._memloader()
@@ -452,12 +466,13 @@ class MemSharedList(list):
     def __delitem__(self, *args, **kwargs):
         return super().__delitem__(*args, **kwargs)
 
-    def cleanup(self,):
+    def cleanup(
+        self,
+    ):
         self._memshared.close()
         if not self._mem_exists:
             self._memshared.unlink()
             gc.collect()
-
 
     @_load_mem
     def __eq__(self, *args, **kwargs):
@@ -664,6 +679,9 @@ class MemSharedSet(set):
                 it={x for x in super().__iter__()} if initialdata else set(),
             )
 
+    def to_set(self):
+        return {k for k in self.__iter__()}
+
     def _load_mem(func):
         def wrapper(self, *arg, **kw):
             self._memloader()
@@ -715,7 +733,6 @@ class MemSharedSet(set):
         if not self._mem_exists:
             self._memshared.unlink()
             gc.collect()
-
 
     @_load_mem
     def __eq__(self, *args, **kwargs):
